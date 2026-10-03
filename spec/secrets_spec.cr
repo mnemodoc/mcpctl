@@ -14,10 +14,13 @@ describe Mcpctl::Secrets do
   end
 
   describe ".parse" do
-    it "drops the single newline the tools append, and nothing else" do
-      Mcpctl::Secrets.parse("Bearer abc\n").should eq "Bearer abc"
+    # Read through a pipe, `secret-tool lookup` prints the value as stored and
+    # appends nothing (libsecret-tools 0.21.4: a stored "abc\n" reads back
+    # "abc\n", a stored "abc" reads back "abc"; only a terminal gets "\r\n").
+    it "keeps the value byte for byte, trailing newline included" do
       Mcpctl::Secrets.parse("Bearer abc").should eq "Bearer abc"
-      Mcpctl::Secrets.parse("  padded \n").should eq "  padded "
+      Mcpctl::Secrets.parse("ends with a newline\n").should eq "ends with a newline\n"
+      Mcpctl::Secrets.parse("  padded ").should eq "  padded "
     end
   end
 

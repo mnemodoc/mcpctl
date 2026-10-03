@@ -127,6 +127,15 @@ jobs:
       - name: Run tests (multi-threaded)
         run: mise dev:spec-mt
 
+      # Project-specific, not in the template: mcpctl reads secrets on Linux
+      # through secret-tool, so a real Secret Service is the only way to check
+      # what it hands back. Linux runners only — macOS has no Secret Service.
+      - name: Install the Secret Service stack
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsecret-tools gnome-keyring dbus
+
+      - name: Run the Secret Service integration spec
+        run: mise dev:spec-secret-tool
+
   test_linux_arm64:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -146,6 +155,15 @@ jobs:
 
       - name: Run tests (multi-threaded)
         run: mise dev:spec-mt
+
+      # Project-specific, not in the template: mcpctl reads secrets on Linux
+      # through secret-tool, so a real Secret Service is the only way to check
+      # what it hands back. Linux runners only — macOS has no Secret Service.
+      - name: Install the Secret Service stack
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsecret-tools gnome-keyring dbus
+
+      - name: Run the Secret Service integration spec
+        run: mise dev:spec-secret-tool
 
   # Best-effort early warning against the Crystal nightly compiler, allowed to
   # fail. mise ships no nightly build, so the container provides the compiler

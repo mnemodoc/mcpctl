@@ -20,10 +20,12 @@ module Mcpctl
       end
     end
 
-    # `secret-tool lookup` adds a newline only when writing to a terminal
-    # (secret-tool(1)). At most one is dropped.
+    # `secret-tool lookup` adds a line ending only when writing to a terminal;
+    # read through a pipe, as here, its output is the value itself (verified with
+    # libsecret-tools 0.21.4). Nothing is trimmed: a trailing newline is part of
+    # the secret.
     def self.parse(output : String) : String
-      output.chomp("\n")
+      output
     end
 
     # `security -g` writes the password to stderr, quoted when it is printable,

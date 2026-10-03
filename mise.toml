@@ -67,6 +67,16 @@ depends = ["dev:licenses"]
 env = { CRYSTAL_WORKERS = "4" }
 run = "timeout 600 crystal spec {{vars.SPEC_OPTS}} -Dpreview_mt"
 
+# Project-specific, not in the template. Reads real secrets through secret-tool,
+# which is how mcpctl reads them on Linux: what a Secret Service hands back
+# (trailing newline, non-ASCII bytes) is only known by asking one. Needs Linux
+# with secret-tool, gnome-keyring and dbus-run-session (packages
+# libsecret-tools, gnome-keyring, dbus). The keyring is a throwaway one,
+# created and unlocked inside the D-Bus session, with a dummy password.
+[tasks."dev:spec-secret-tool"]
+description = "Run the Secret Service integration spec (Linux only)"
+run = "timeout 600 dbus-run-session -- sh -c 'printf mcpctl | gnome-keyring-daemon --unlock --components=secrets > /dev/null && crystal spec {{vars.SPEC_OPTS}} spec/integration/secret_tool.cr'"
+
 [tasks."dev:docs"]
 description = "Generate project documentation"
 depends = ["dev:licenses"]
