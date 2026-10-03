@@ -1,0 +1,110 @@
+name: Update Homebrew tap
+
+on:
+  workflow_run:
+    workflows: ["Release Binaries"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (without v prefix, e.g. 1.0.0)"
+        required: true
+
+# This job holds no GITHUB_TOKEN scope: it only ever writes to the tap, and it
+# does so with TAP_GITHUB_TOKEN. Without this block the token would inherit the
+# repository default, which on older repositories is read AND write.
+permissions: {}
+
+jobs:
+  update-tap:
+    name: Bump formula in mnemodoc/homebrew-tap
+    runs-on: ubuntu-24.04
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      # This repository is checked out for one reason: `scripts/update_formula.py`
+      # runs in the same job as the tap's token, so it must be code this
+      # repository reviews and versions. It used to be executed from the tap's
+      # own checkout, which made a write on the tap enough to run arbitrary code
+      # here. Checked out FIRST: actions/checkout cleans its destination, so
+      # doing it after would wipe the tap checkout nested below it.
+      - name: Checkout this repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Every value that originates outside this file (a tag name, a dispatch
+      # input) is passed through `env:` and read as a shell variable. Written as
+      # `${{ … }}` inside `run:` it would be spliced into the script by the
+      # template engine BEFORE the shell ever sees it, so a tag named
+      # `v1.0.0";evil;#` would execute — and this job holds the tap's token.
+      - name: Compute version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            VALUE="$INPUT_VERSION"
+          else
+            VALUE="${HEAD_BRANCH#v}"
+          fi
+          # Second line of defence: an unvalidated value reaching $GITHUB_OUTPUT
+          # can declare extra step outputs of its own if it carries a newline.
+          # A version is a version — anything else stops the run here.
+          if [[ ! "$VALUE" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+.][A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::refusing to publish an unexpected version string"
+            exit 1
+          fi
+          echo "value=$VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: Download binaries and compute SHA256
+        id: shas
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          BASE="https://github.com/mnemodoc/mcpctl/releases/download/v${VERSION}"
+          for ASSET in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            curl -fsSL -o "$ASSET" "${BASE}/mcpctl-${ASSET}"
+            SHA=$(sha256sum "$ASSET" | awk '{print $1}')
+            echo "${ASSET//-/_}=$SHA" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Checkout tap
+        uses: actions/checkout@v7
+        with:
+          repository: mnemodoc/homebrew-tap
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      # The checksums are ours (sha256sum output, hexadecimal), but they travel
+      # through `env:` like everything else so the rule stays mechanical and
+      # greppable: no `${{ }}` may appear inside any `run:` block.
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          SHA_DARWIN_ARM64: ${{ steps.shas.outputs.darwin_arm64 }}
+          SHA_DARWIN_AMD64: ${{ steps.shas.outputs.darwin_amd64 }}
+          SHA_LINUX_ARM64: ${{ steps.shas.outputs.linux_arm64 }}
+          SHA_LINUX_AMD64: ${{ steps.shas.outputs.linux_amd64 }}
+        run: |
+          python3 scripts/update_formula.py \
+            --formula homebrew-tap/Formula/mcpctl.rb \
+            --version "$VERSION" \
+            --darwin-arm64 "$SHA_DARWIN_ARM64" \
+            --darwin-amd64 "$SHA_DARWIN_AMD64" \
+            --linux-arm64  "$SHA_LINUX_ARM64" \
+            --linux-amd64  "$SHA_LINUX_AMD64"
+
+      - name: Open PR on tap
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+          branch: bump/mcpctl-${{ steps.version.outputs.value }}
+          title: "chore: bump mcpctl to v${{ steps.version.outputs.value }}"
+          body: |
+            Automated bump triggered by release `v${{ steps.version.outputs.value }}`.
+
+            SHA256 checksums updated for all four platform binaries.
+          commit-message: "chore: bump mcpctl to v${{ steps.version.outputs.value }}"

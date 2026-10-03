@@ -1,0 +1,133 @@
+---
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  # `--version` prints the version of shard.yml, the release is named after the
+  # tag: a tag pushed without bumping shard.yml would ship binaries announcing
+  # the previous version. Every release job waits for this check.
+  check_version:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Compare the tag with shard.yml
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          SHARD_VERSION="$(awk '/^version:/ { print $2; exit }' shard.yml)"
+          if [[ "${TAG#v}" != "$SHARD_VERSION" ]]; then
+            echo "::error::tag $TAG does not match shard.yml version $SHARD_VERSION"
+            exit 1
+          fi
+
+  release_linux:
+    needs: check_version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+
+      - name: Build static binaries
+        run: mise release:static
+
+      - name: Create release and publish assets
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "packages/*"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+
+  release_macos_arm64:
+    needs: check_version
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install bdw-gc
+        run: brew install bdw-gc
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+
+      # TODO: remove me when https://github.com/crystal-lang/crystal/issues/16746 is fixed
+      - name: Fix Crystal shards
+        run: mise dev:fix-shards-command
+
+      - name: Install dependencies
+        run: mise release:deps
+
+      - name: Build binary
+        run: mise release:build
+        env:
+          OUTPUT_FILE: bin/mcpctl-darwin-arm64
+
+      - name: Create release and publish assets
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "bin/*"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+
+  release_macos_amd64:
+    needs: check_version
+    runs-on: macos-26-intel
+    permissions:
+      contents: write
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install bdw-gc
+        run: brew install bdw-gc
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+
+      # TODO: remove me when https://github.com/crystal-lang/crystal/issues/16746 is fixed
+      - name: Fix Crystal shards
+        run: mise dev:fix-shards-command
+
+      - name: Install dependencies
+        run: mise release:deps
+
+      - name: Build binary
+        run: mise release:build
+        env:
+          OUTPUT_FILE: bin/mcpctl-darwin-amd64
+
+      - name: Create release and publish assets
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "bin/*"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true

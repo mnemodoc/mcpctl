@@ -1,0 +1,154 @@
+[settings]
+aqua.registries = ["https://github.com/jbox-web/aqua-registry"]
+
+[tools]
+crystal = "1.20.3"
+"aqua:elbywan/crystalline" = "0.18.0"
+
+[vars]
+# Change APP_NAME per project — everything else derives from it.
+APP_NAME    = "mcpctl"
+SOURCE_FILE = "src/{{vars.APP_NAME}}.cr"
+OUTPUT_FILE = "{% if get_env(name='OUTPUT_FILE', default='false') == 'false' %}bin/{{vars.APP_NAME}}{% else %}{{ get_env(name='OUTPUT_FILE') }}{% endif %}"
+
+DEFAULT_COMPILE_OPTS_DEV     = "--threads 4"
+DEFAULT_COMPILE_OPTS_RELEASE = "--threads 4 --release --error-trace"
+
+SPEC_OPTS            = "{% if exec(command='(tty -s && echo true) || echo false') == 'true' %}--verbose{% endif %}"
+COMPILE_OPTS_DEV     = "{% if exec(command='(tty -s && echo true) || echo false') == 'true' %}{{vars.DEFAULT_COMPILE_OPTS_DEV}} --progress{% else %}{{vars.DEFAULT_COMPILE_OPTS_DEV}}{% endif %}"
+COMPILE_OPTS_RELEASE = "{% if exec(command='(tty -s && echo true) || echo false') == 'true' %}{{vars.DEFAULT_COMPILE_OPTS_RELEASE}} --progress{% else %}{{vars.DEFAULT_COMPILE_OPTS_RELEASE}}{% endif %}"
+
+
+#####################
+# Development tasks #
+#####################
+
+# THE RULE BEHIND EVERY `depends` BELOW, and it cost three red CI runs to learn:
+# a task the CI launches ON ITS OWN must declare what it needs generated. Locally
+# the generated inputs are always lying around from an earlier build, so the
+# omission is invisible; on a bare checkout the compilation is the first thing to
+# touch them. It applies to `crystal doc` exactly as much as to `crystal build`,
+# because doc runs the macros — that is how the docs job died on a licenses/
+# folder nobody had assembled yet. Add to these lists whatever else the project
+# generates (a C header, vendored objects, a baked folder).
+
+[tasks."dev:build"]
+description = "Compile to development binary"
+depends = ["dev:licenses"]
+run = "crystal build {{vars.COMPILE_OPTS_DEV}} -o {{vars.OUTPUT_FILE}} {{vars.SOURCE_FILE}}"
+
+[tasks."dev:deps"]
+description = "Install development dependencies"
+run = "shards install"
+
+[tasks."dev:clean"]
+description = "Cleanup environment"
+run = "rm -rf bin/* lib/"
+
+# Add "dev:build" to the depends when the specs drive the compiled binary rather
+# than the library: without it they fail with "no such file or directory" in any
+# context that runs dev:spec on its own, which locally never happens because
+# dev:check builds first.
+# Bounded like dev:ameba, and for the same reason the ameba comment already
+# names: a spec run can spin forever. Observed on a real project — the
+# multi-threaded binary ran 11 minutes at 100% CPU on a tree whose only change
+# was documentation, then passed in 176ms on the next attempt. A livelock of
+# that kind fails nowhere: with no bound the CI job holds a runner until the
+# platform's own job timeout (6h by default on GitHub) instead of failing in
+# minutes with exit 124. 600s leaves room for a cold compile on a slow runner.
+[tasks."dev:spec"]
+description = "Run Crystal spec"
+depends = ["dev:licenses"]
+run = "timeout 600 crystal spec {{vars.SPEC_OPTS}}"
+
+[tasks."dev:spec-mt"]
+description = "Run Crystal spec (multi-threaded)"
+depends = ["dev:licenses"]
+env = { CRYSTAL_WORKERS = "4" }
+run = "timeout 600 crystal spec {{vars.SPEC_OPTS}} -Dpreview_mt"
+
+[tasks."dev:docs"]
+description = "Generate project documentation"
+depends = ["dev:licenses"]
+run = "rm -rf docs && crystal doc"
+
+# Assembles the notices a statically linked binary has to carry, from
+# licenses.manifest and licenses-spdx/. The script is
+# ~/.claude/templates/crystal/harvest-licenses.sh, and its header documents
+# both inputs; it skips cleanly when there is no manifest, so a project that
+# bakes no licenses can drop the task, the script and the depends above without
+# anything breaking in the meantime.
+[tasks."dev:licenses"]
+description = "Assemble the licenses/ folder baked into the binary"
+run = "bash scripts/harvest-licenses.sh"
+
+# ameba can spin at 100% CPU indefinitely on some inputs, so the task carries its
+# own bound: the analysis is killed after 180s and the task fails with exit 124
+# instead of running for hours unnoticed. Never call `bin/ameba` directly.
+# `timeout` is GNU coreutils: present on the CI Linux runners, absent from macOS
+# — /usr/bin/timeout does not exist there. Both CI templates now install
+# coreutils and put its gnubin first in the macOS jobs, so the task needs no
+# platform branch; a macOS machine running it by hand needs `brew install
+# coreutils` and that prefix on its PATH.
+[tasks."dev:ameba"]
+description = "Run static code analysis"
+run = "timeout 180 bin/ameba"
+
+[tasks."dev:format"]
+description = "Format code"
+run = "crystal tool format src/ spec/"
+
+[tasks."dev:format-check"]
+description = "Check code formatting without modifying files"
+run = "crystal tool format --check src/ spec/"
+
+[tasks."dev:docker-image"]
+description = "Build local multiplatforms Docker image for local development"
+run = "docker buildx bake docker-image"
+
+# TODO: remove me when https://github.com/crystal-lang/crystal/issues/16746 is fixed
+[tasks."dev:fix-shards-command"]
+description = "Fix missing shards command"
+run = "cp $HOME/.local/share/mise/installs/crystal/{{tools.crystal.version}}/embedded/bin/shards $HOME/.local/share/mise/installs/crystal/{{tools.crystal.version}}/bin/"
+
+
+#################
+# Release tasks #
+#################
+
+[tasks."release:build"]
+description = "Compile to production binary"
+# Same rule as the dev tasks, and this one bites in production: a release
+# workflow runs `mise release:build` standalone on a bare macOS checkout, where
+# nothing has assembled licenses/ yet and the compile dies at macro time. The
+# Linux binaries escape it only because they are built by Makefile.release
+# inside Alpine, which has its own `licenses` target. Drop this line along with
+# the rest of the licenses machinery in a project that bakes nothing.
+depends = ["dev:licenses"]
+run = '''
+crystal build {{vars.COMPILE_OPTS_RELEASE}} -o {{vars.OUTPUT_FILE}} {{vars.SOURCE_FILE}}
+# Checksum only the binary that was just built. `cd bin; for f in *` also hashed
+# the .sha256 files produced by the previous run (myapp.sha256.sha256, one more
+# level each time) and any other binary sitting in bin/ — ameba, or the CLI
+# build the specs produce. OUTPUT_FILE is overridable by the environment, so the
+# path is not assumed to be under bin/.
+cd "$(dirname {{vars.OUTPUT_FILE}})"
+binary="$(basename {{vars.OUTPUT_FILE}})"
+rm -f "$binary.sha256"
+shasum --algorithm 256 "$binary" > "$binary.sha256"
+'''
+
+[tasks."release:deps"]
+description = "Install production dependencies"
+run = "shards install --production"
+
+[tasks."release:static"]
+description = "Build static binary with Docker"
+run = '''
+docker buildx bake binary
+mv packages/linux_arm64/{{vars.APP_NAME}}-linux-arm64 packages/
+mv packages/linux_amd64/{{vars.APP_NAME}}-linux-amd64 packages/
+rmdir packages/linux_arm64/ packages/linux_amd64/
+rm -f packages/*.sha256
+cd packages; for f in *; do shasum --algorithm 256 $f > $f.sha256; done
+'''

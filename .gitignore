@@ -1,0 +1,17 @@
+# Ignore generated data
+/docs/
+/lib/
+
+# Ignore all bin files except the placeholder
+/bin/*
+!/bin/.keep
+
+# Ignore MacOS files
+.DS_Store
+
+# Ignore local Claude Code settings and plans
+/.claude/settings.local.json
+/.claude/plans/
+
+# Assembled at build time from licenses.manifest; baked into the binary
+/licenses/

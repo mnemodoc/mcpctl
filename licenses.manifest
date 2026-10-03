@@ -1,0 +1,13 @@
+# kind | name | source (on-disk LICENSE path for shards; SPDX id for clib/runtime)
+# The clib entries are what the static Linux build links (see Dockerfile).
+# zlib comes with baked_file_system's gzip storage. OpenSSL is absent on
+# purpose: only the compile-time loader links it, the shipped binary does not.
+shard   | baked_file_system | lib/baked_file_system/LICENSE
+clib    | pcre2             | BSD-3-Clause
+clib    | libyaml           | MIT
+clib    | zlib              | Zlib
+clib    | boehm-gc          | Boehm-GC
+clib    | musl              | MIT
+clib    | libgcc            | GCC-runtime-exception
+runtime | crystal           | Apache-2.0
+project | mcpctl            | LICENSE

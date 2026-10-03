@@ -1,0 +1,25 @@
+PROGRAM_NAME = mcpctl
+SOURCE_FILE  = src/$(PROGRAM_NAME).cr
+OUTPUT_FILE  = bin/$(PROGRAM_NAME)-${TARGETOS}-${TARGETARCH}
+COMPILE_OPTS = --threads 4 --release --error-trace --static
+
+# All targets are tasks, not files. `licenses` in particular would otherwise
+# collide with the generated licenses/ directory and be skipped as "up to date".
+.PHONY: debug deps licenses release
+
+debug:
+	@uname -a
+	@echo "TARGETPLATFORM: ${TARGETPLATFORM}"
+	@echo "TARGETOS: ${TARGETOS}"
+	@echo "TARGETARCH: ${TARGETARCH}"
+	@echo "SOURCE_FILE: $(SOURCE_FILE)"
+	@echo "OUTPUT_FILE: $(OUTPUT_FILE)"
+
+deps: debug
+	shards install --production
+
+licenses:
+	bash scripts/harvest-licenses.sh
+
+release: deps licenses
+	crystal build $(COMPILE_OPTS) -o $(OUTPUT_FILE) $(SOURCE_FILE)
