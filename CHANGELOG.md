@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Renaming or removing a server with secrets no longer blocks `sync`**: the
+  guard mistook the `launch <name>` indirection it writes itself for a possible
+  secret and refused the rewrite. Only that exact pair, under the entry's own
+  name, is exempt — any other dropped argument is still checked.
+
 ## [0.1.0] - 2026-10-03
 
 ### Added
@@ -28,4 +36,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `settings:` section for machine-specific paths, with PATH-based defaults.
 - `mcpctl licenses` prints the third-party notices baked into the binary.
 
+[Unreleased]: https://github.com/mnemodoc/mcpctl/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/mnemodoc/mcpctl/releases/tag/v0.1.0

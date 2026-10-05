@@ -35,8 +35,10 @@ module Mcpctl
         new[name]?.try { |current| leaves(current).each { |_, value| kept << value } }
         server.try { |declared| kept.concat(declared_values(declared)) }
         secrets = server.try(&.secret_services.compact_map { |service| lookup.call(service) }) || [] of String
+        indirection = launch_indirection?(name, entry)
 
         leaves(entry).each do |path, value|
+          next if indirection && path.starts_with?("args[")
           next if exempt?(path, value)
           next if kept.includes?(value) || secrets.includes?(value)
 
@@ -45,6 +47,13 @@ module Mcpctl
       end
 
       errors
+    end
+
+    # `launch <name>` under the entry's own name is the indirection the renderer
+    # writes for a server with secrets: it holds the server name, never a value,
+    # so renaming or removing that server must not trip the guard.
+    private def self.launch_indirection?(name : String, entry : JSON::Any) : Bool
+      entry["args"]?.try(&.as_a?) == [JSON::Any.new("launch"), JSON::Any.new(name)]
     end
 
     # Arguments are checked like any other string, except the two shapes that

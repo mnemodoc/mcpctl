@@ -73,6 +73,27 @@ describe Mcpctl::Guard do
     ]
   end
 
+  it "lets the launch indirection of a renamed or removed server go" do
+    old = OLD_ENTRIES.merge({"old-graf" => JSON.parse(%({"command":"/bin/mcpctl","args":["launch","old-graf"]}))})
+
+    errors = Mcpctl::Guard.dropped(CONFIG, old, NEW_ENTRIES,
+      keychain({"mcp.obs" => "Bearer s3cr3t-obs", "mcp.graf" => "s3cr3t-graf"}))
+
+    errors.should be_empty
+  end
+
+  it "still refuses launch-shaped args that name another server" do
+    old = OLD_ENTRIES.merge({"tool" => JSON.parse(%({"command":"/old/tool","args":["launch","sk-only-copy"]}))})
+
+    errors = Mcpctl::Guard.dropped(CONFIG, old, NEW_ENTRIES,
+      keychain({"mcp.obs" => "Bearer s3cr3t-obs", "mcp.graf" => "s3cr3t-graf"}))
+
+    errors.should eq [
+      "tool: args[0] would be dropped but matches no keychain secret of this server",
+      "tool: args[1] would be dropped but matches no keychain secret of this server",
+    ]
+  end
+
   it "lets an old command, old paths and bare flags in args go" do
     old = OLD_ENTRIES.merge({"graf" => JSON.parse(%({"command":"/old/graf","args":["--stdio","/old/conf.yml","~/old.yml"],"settings":{"grafana_api_key":"s3cr3t-graf"}}))})
 

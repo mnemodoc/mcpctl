@@ -14,10 +14,5 @@ brew 'bash'
 # The task runner and the toolchain it pins.
 brew 'mise'
 
-# GNU coreutils, for `timeout`: the tasks bound ameba and the spec runs with it,
-# and macOS has no /usr/bin/timeout. Put its gnubin ahead of Apple's tools:
-#   export PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
-brew 'coreutils'
-
 # release:static and dev:docker-image go through `docker buildx bake`.
 cask 'docker'

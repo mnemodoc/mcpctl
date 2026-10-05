@@ -1,3 +1,7 @@
+# Per-task `timeout` keys are only enforced reliably from mise 2026.10.2 on:
+# an older mise must refuse to run instead of leaving those tasks unbounded.
+min_version = "2026.10.2"
+
 [settings]
 aqua.registries = ["https://github.com/jbox-web/aqua-registry"]
 
@@ -55,17 +59,20 @@ run = "rm -rf bin/* lib/"
 # was documentation, then passed in 176ms on the next attempt. A livelock of
 # that kind fails nowhere: with no bound the CI job holds a runner until the
 # platform's own job timeout (6h by default on GitHub) instead of failing in
-# minutes with exit 124. 600s leaves room for a cold compile on a slow runner.
+# minutes with "timed out after 600s". 600s leaves room for a cold compile on a
+# slow runner.
 [tasks."dev:spec"]
 description = "Run Crystal spec"
 depends = ["dev:licenses"]
-run = "timeout 600 crystal spec {{vars.SPEC_OPTS}}"
+timeout = "600s"
+run = "crystal spec {{vars.SPEC_OPTS}}"
 
 [tasks."dev:spec-mt"]
 description = "Run Crystal spec (multi-threaded)"
 depends = ["dev:licenses"]
 env = { CRYSTAL_WORKERS = "4" }
-run = "timeout 600 crystal spec {{vars.SPEC_OPTS}} -Dpreview_mt"
+timeout = "600s"
+run = "crystal spec {{vars.SPEC_OPTS}} -Dpreview_mt"
 
 # Project-specific, not in the template. Reads real secrets through secret-tool,
 # which is how mcpctl reads them on Linux: what a Secret Service hands back
@@ -75,7 +82,8 @@ run = "timeout 600 crystal spec {{vars.SPEC_OPTS}} -Dpreview_mt"
 # created and unlocked inside the D-Bus session, with a dummy password.
 [tasks."dev:spec-secret-tool"]
 description = "Run the Secret Service integration spec (Linux only)"
-run = "timeout 600 dbus-run-session -- sh -c 'printf mcpctl | gnome-keyring-daemon --unlock --components=secrets > /dev/null && crystal spec {{vars.SPEC_OPTS}} spec/integration/secret_tool.cr'"
+timeout = "600s"
+run = "dbus-run-session -- sh -c 'printf mcpctl | gnome-keyring-daemon --unlock --components=secrets > /dev/null && crystal spec {{vars.SPEC_OPTS}} spec/integration/secret_tool.cr'"
 
 [tasks."dev:docs"]
 description = "Generate project documentation"
@@ -93,16 +101,15 @@ description = "Assemble the licenses/ folder baked into the binary"
 run = "bash scripts/harvest-licenses.sh"
 
 # ameba can spin at 100% CPU indefinitely on some inputs, so the task carries its
-# own bound: the analysis is killed after 180s and the task fails with exit 124
-# instead of running for hours unnoticed. Never call `bin/ameba` directly.
-# `timeout` is GNU coreutils: present on the CI Linux runners, absent from macOS
-# — /usr/bin/timeout does not exist there. Both CI templates now install
-# coreutils and put its gnubin first in the macOS jobs, so the task needs no
-# platform branch; a macOS machine running it by hand needs `brew install
-# coreutils` and that prefix on its PATH.
+# own bound: the analysis is killed after 180s and the task fails with "timed
+# out after 180s" instead of running for hours unnoticed. Never call `bin/ameba`
+# directly. The bound is mise's own task `timeout`, not the coreutils command:
+# it works the same on Linux and macOS (which ships no `timeout`), and mise
+# kills the whole process tree — SIGTERM, then SIGKILL 5s later.
 [tasks."dev:ameba"]
 description = "Run static code analysis"
-run = "timeout 180 bin/ameba"
+timeout = "180s"
+run = "bin/ameba"
 
 [tasks."dev:format"]
 description = "Format code"
