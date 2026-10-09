@@ -4,7 +4,8 @@
 #   mcpctl sync
 #
 # Secrets are never written here: `secret_env` and `secret_headers` name an
-# entry of the OS secret store (macOS keychain, Linux Secret Service).
+# entry of the OS secret store (macOS keychain, Linux Secret Service), by
+# convention `mcp.<group>.<server>` — see "Store a secret" in the README.
 
 # Optional. Every value has a default; set one only when the default is wrong
 # on this machine — typically when the clients start servers with a PATH that
@@ -16,48 +17,54 @@ settings:
   # zed_settings: ~/.config/zed/settings.json
   # claude_json: ~/.claude.json
 
+# Servers are declared under a group: `servers: <group>: <server>:`. A group is
+# a namespace: the clients see `<group>-<server>` (`monitoring-grafana` below),
+# so two groups may reuse a short name. The servers of the `default` group keep
+# their own name. Two servers ending up with the same name are refused.
 servers:
-  # stdio, no secret: written as is into both clients.
-  code-index:
-    targets: [claude, zed]
-    command: ~/.local/bin/code-index
-    args: [serve, --mcp]
+  default:
+    # stdio, no secret: written as is into both clients.
+    code-index:
+      targets: [claude, zed]
+      command: ~/.local/bin/code-index
+      args: [serve, --mcp]
 
-  # HTTP, no secret.
-  public-docs:
-    targets: [claude, zed]
-    url: https://docs.example.com/mcp
+    # HTTP, no secret.
+    public-docs:
+      targets: [claude, zed]
+      url: https://docs.example.com/mcp
 
-  # stdio with a secret: both clients run `mcpctl launch grafana`, which puts
-  # the token in the server's environment and execs it.
-  grafana:
-    targets: [claude, zed]
-    command: /opt/homebrew/bin/mcp-grafana
-    env:
-      GRAFANA_URL: https://grafana.example.com
-    secret_env:
-      GRAFANA_SERVICE_ACCOUNT_TOKEN: mcp.grafana
+  monitoring:
+    # stdio with a secret: both clients run `mcpctl launch monitoring-grafana`,
+    # which puts the token in the server's environment and execs it.
+    grafana:
+      targets: [claude, zed]
+      command: /opt/homebrew/bin/mcp-grafana
+      env:
+        GRAFANA_URL: https://grafana.example.com
+      secret_env:
+        GRAFANA_SERVICE_ACCOUNT_TOKEN: mcp.monitoring.grafana
 
-  # HTTP with a secret: Claude Code gets it from `mcpctl headers`; Zed runs
-  # `mcpctl launch observability`, which bridges to stdio with mcp-remote.
-  observability:
-    targets: [claude, zed]
-    url: https://observability.example.com/api/mcp
-    headers:
-      X-Org: default
-    secret_headers:
-      Authorization: mcp.observability   # store the full value, e.g. "Bearer <token>"
-    note: |-
-      Copied as comments above the entry in Zed's settings.json.
+    # HTTP with a secret: Claude Code gets it from `mcpctl headers`; Zed runs
+    # `mcpctl launch monitoring-observability`, which bridges to stdio with mcp-remote.
+    observability:
+      targets: [claude, zed]
+      url: https://observability.example.com/api/mcp
+      headers:
+        X-Org: default
+      secret_headers:
+        Authorization: mcp.monitoring.observability   # store the full value, e.g. "Bearer <token>"
+      note: |-
+        Copied as comments above the entry in Zed's settings.json.
 
-  # Zed only, declared but disabled until needed. Claude Code has no
-  # user-scope "disabled" state, so a disabled server is left out of it.
-  staging-db:
-    targets: [zed]
-    enabled: false
-    url: http://127.0.0.1:3999/mcp
-    secret_headers:
-      Authorization: mcp.staging-db
+    # Zed only, declared but disabled until needed. Claude Code has no
+    # user-scope "disabled" state, so a disabled server is left out of it.
+    staging-db:
+      targets: [zed]
+      enabled: false
+      url: http://127.0.0.1:3999/mcp
+      secret_headers:
+        Authorization: mcp.monitoring.staging-db
 
 # Entries copied verbatim into Zed: servers provided by a Zed extension.
 # Remove one once the extension is uninstalled, then run `mcpctl sync`.

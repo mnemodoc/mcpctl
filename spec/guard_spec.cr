@@ -2,18 +2,19 @@ require "./spec_helper"
 
 private CONFIG = Mcpctl::Config.from_yaml(<<-YAML)
   servers:
-    obs:
-      targets: [zed]
-      url: https://obs/mcp
-      secret_headers:
-        Authorization: mcp.obs
-    graf:
-      targets: [zed]
-      command: /opt/bin/graf
-      env:
-        GRAFANA_URL: https://graf
-      secret_env:
-        TOKEN: mcp.graf
+    default:
+      obs:
+        targets: [zed]
+        url: https://obs/mcp
+        secret_headers:
+          Authorization: mcp.obs
+      graf:
+        targets: [zed]
+        command: /opt/bin/graf
+        env:
+          GRAFANA_URL: https://graf
+        secret_env:
+          TOKEN: mcp.graf
   YAML
 
 private NEW_ENTRIES = {
@@ -43,7 +44,7 @@ describe Mcpctl::Guard do
     errors = Mcpctl::Guard.dropped(CONFIG, OLD_ENTRIES, NEW_ENTRIES,
       keychain({"mcp.obs" => "Bearer other", "mcp.graf" => "s3cr3t-graf"}))
 
-    errors.should eq ["obs: headers.Authorization would be dropped but matches no keychain secret of this server"]
+    errors.should eq ["obs: headers.Authorization would be dropped but is neither declared in servers.yml nor a keychain secret"]
   end
 
   it "refuses a declared secret missing from the keychain" do
@@ -58,7 +59,7 @@ describe Mcpctl::Guard do
     errors = Mcpctl::Guard.dropped(CONFIG, old, NEW_ENTRIES,
       keychain({"mcp.obs" => "Bearer s3cr3t-obs", "mcp.graf" => "s3cr3t-graf"}))
 
-    errors.should eq ["legacy: headers.Authorization would be dropped but matches no keychain secret of this server"]
+    errors.should eq ["legacy: headers.Authorization would be dropped but is neither declared in servers.yml nor a keychain secret"]
   end
 
   it "refuses a dropped argument that is neither a path nor a bare flag" do
@@ -68,8 +69,8 @@ describe Mcpctl::Guard do
       keychain({"mcp.obs" => "Bearer s3cr3t-obs", "mcp.graf" => "s3cr3t-graf"}))
 
     errors.should eq [
-      "tool: args[1] would be dropped but matches no keychain secret of this server",
-      "tool: args[2] would be dropped but matches no keychain secret of this server",
+      "tool: args[1] would be dropped but is neither declared in servers.yml nor a keychain secret",
+      "tool: args[2] would be dropped but is neither declared in servers.yml nor a keychain secret",
     ]
   end
 
@@ -89,9 +90,53 @@ describe Mcpctl::Guard do
       keychain({"mcp.obs" => "Bearer s3cr3t-obs", "mcp.graf" => "s3cr3t-graf"}))
 
     errors.should eq [
-      "tool: args[0] would be dropped but matches no keychain secret of this server",
-      "tool: args[1] would be dropped but matches no keychain secret of this server",
+      "tool: args[0] would be dropped but is neither declared in servers.yml nor a keychain secret",
+      "tool: args[1] would be dropped but is neither declared in servers.yml nor a keychain secret",
     ]
+  end
+
+  # A group renames its servers: the old entry goes, its values stay readable
+  # in servers.yml under the new name, so nothing is lost.
+  it "lets the literal secret of a renamed server go when the keychain holds it under its new name" do
+    old = {"grafana" => JSON.parse(%({"command":"/opt/bin/graf","env":{"TOK":"s3cret"}}))}
+    new = {"monitoring-grafana" => JSON.parse(%({"command":"/bin/mcpctl","args":["launch","monitoring-grafana"]}))}
+    config = Mcpctl::Config.from_yaml(<<-YAML)
+      servers:
+        monitoring:
+          grafana:
+            targets: [zed]
+            command: /opt/bin/graf
+            secret_env:
+              TOK: mcp.monitoring.grafana
+      YAML
+
+    Mcpctl::Guard.dropped(config, old, new, keychain({"mcp.monitoring.grafana" => "s3cret"})).should be_empty
+  end
+
+  it "lets the values of a renamed server go when servers.yml declares them under its new name" do
+    old = {
+      "old-obs"  => JSON.parse(%({"type":"http","url":"https://obs/mcp"})),
+      "old-graf" => JSON.parse(%({"command":"/opt/bin/graf","args":["mcp"],"env":{"GRAFANA_URL":"https://graf"}})),
+    }
+    new = {
+      "obs"  => JSON.parse(%({"type":"http","url":"https://obs/mcp"})),
+      "graf" => JSON.parse(%({"command":"/opt/bin/graf","args":["mcp"],"env":{"GRAFANA_URL":"https://graf"}})),
+    }
+    config = Mcpctl::Config.from_yaml(<<-YAML)
+      servers:
+        default:
+          obs:
+            targets: [zed]
+            url: https://obs/mcp
+          graf:
+            targets: [zed]
+            command: /opt/bin/graf
+            args: [mcp]
+            env:
+              GRAFANA_URL: https://graf
+      YAML
+
+    Mcpctl::Guard.dropped(config, old, new, keychain({} of String => String)).should be_empty
   end
 
   it "lets an old command, old paths and bare flags in args go" do

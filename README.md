@@ -75,21 +75,28 @@ need the bridge in Zed; `secret-tool` (package `libsecret-tools`) on Linux.
 
 ```yaml
 servers:
-  grafana:
-    targets: [claude, zed]          # one name on both sides: it is what de-duplicates a server
-                                    # Zed forwards to an agent that also declares it
-    command: /opt/homebrew/bin/mcp-grafana
-    env:
-      GRAFANA_URL: https://grafana.example.com
-    secret_env:
-      GRAFANA_SERVICE_ACCOUNT_TOKEN: mcp.grafana   # name of the entry in the secret store
+  monitoring:                         # a group: the clients see monitoring-grafana, …
+    grafana:
+      targets: [claude, zed]          # one name on both sides: it is what de-duplicates a server
+                                      # Zed forwards to an agent that also declares it
+      command: /opt/homebrew/bin/mcp-grafana
+      env:
+        GRAFANA_URL: https://grafana.example.com
+      secret_env:
+        GRAFANA_SERVICE_ACCOUNT_TOKEN: mcp.monitoring.grafana   # name of the entry in the secret store
 
-  observability:
-    targets: [claude, zed]
-    url: https://observability.example.com/mcp
-    secret_headers:
-      Authorization: mcp.observability
+    observability:
+      targets: [claude, zed]
+      url: https://observability.example.com/mcp
+      secret_headers:
+        Authorization: mcp.monitoring.observability
 ```
+
+Servers are declared under a group, `servers: <group>: <server>:`. A group is a namespace: Claude
+Code and Zed see `<group>-<server>` — the name `mcpctl launch` takes and the one tool permissions
+are written against — so two groups may reuse a short name. The servers of the `default` group
+keep their own name. Two servers ending up with the same name (`a` + `b-c` and `a-b` + `c`) are
+refused, and so is a server written directly under `servers:`.
 
 | Key | Meaning |
 | --- | --- |
@@ -110,15 +117,30 @@ so it has to survive an upgrade.
 
 ## Store a secret
 
+`mcpctl` reads whatever entry `servers.yml` names; it enforces no naming scheme. The convention
+below keeps the secret store as readable as `servers.yml`, one entry per server secret:
+
+| Server | Entry |
+| --- | --- |
+| `<server>` in a group | `mcp.<group>.<server>` — `monitoring` / `grafana` → `mcp.monitoring.grafana` |
+| `<server>` in `default` | `mcp.<server>`, after the name the clients see |
+| a second secret of the same server | `mcp.<group>.<server>.<purpose>` — `mcp.monitoring.grafana.db` |
+
+The entry then tells which server reads it, the store lists the secrets of a group together
+(`security dump-keychain | grep mcp.monitoring.`), and two groups reusing a short name never share
+an entry by accident. Renaming a server or moving it to another group means renaming its entry
+too: copy the value under the new name, point `servers.yml` at it, check that `mcpctl sync --check`
+finds it (a missing entry is refused), then delete the old one.
+
 Always through standard input — a value passed as an argument is visible to `ps` and lands in the
 shell history.
 
 ```sh
 # macOS
-read -rs v && printf '%s\n%s\n' "$v" "$v" | security add-generic-password -U -a "$USER" -s mcp.grafana -w; unset v
+read -rs v && printf '%s\n%s\n' "$v" "$v" | security add-generic-password -U -a "$USER" -s mcp.monitoring.grafana -w; unset v
 
 # Linux
-secret-tool store --label="mcp.grafana" service mcp.grafana   # prompts for the value
+secret-tool store --label="mcp.monitoring.grafana" service mcp.monitoring.grafana   # prompts for the value
 ```
 
 Rotating a secret needs no `sync`: it is read each time the server starts.

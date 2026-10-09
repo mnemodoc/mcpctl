@@ -76,9 +76,10 @@ end
 
 private PLAIN = <<-YAML
   servers:
-    plain:
-      targets: [claude, zed]
-      command: /bin/echo
+    default:
+      plain:
+        targets: [claude, zed]
+        command: /bin/echo
   YAML
 
 describe Mcpctl::Sync do
@@ -87,7 +88,7 @@ describe Mcpctl::Sync do
       box.sync.run(false).should eq Mcpctl::Sync::Outcome::Refused
 
       box.calls.should be_empty
-      box.stderr.to_s.should contain "guard: claude: legacy: env.API_KEY would be dropped but matches no keychain secret of this server"
+      box.stderr.to_s.should contain "guard: claude: legacy: env.API_KEY would be dropped but is neither declared in servers.yml nor a keychain secret"
       box.stderr.to_s.should_not contain "literal-s3cret"
     end
   end
@@ -95,11 +96,12 @@ describe Mcpctl::Sync do
   it "refuses to replace a Claude Code entry whose literal header is not in the keychain" do
     yaml = <<-YAML
       servers:
-        obs:
-          targets: [claude]
-          url: https://obs/mcp
-          secret_headers:
-            Authorization: mcp.obs
+        default:
+          obs:
+            targets: [claude]
+            url: https://obs/mcp
+            secret_headers:
+              Authorization: mcp.obs
       YAML
     current = %({"obs": {"type": "http", "url": "https://obs/mcp", "headers": {"Authorization": "Bearer old"}}})
 
@@ -187,11 +189,12 @@ describe Mcpctl::Sync do
   it "reads each keychain entry once per sync" do
     yaml = <<-YAML
       servers:
-        obs:
-          targets: [claude, zed]
-          url: https://obs/mcp
-          secret_headers:
-            Authorization: mcp.obs
+        default:
+          obs:
+            targets: [claude, zed]
+            url: https://obs/mcp
+            secret_headers:
+              Authorization: mcp.obs
       YAML
     claude = %({"obs": {"type": "http", "url": "https://obs/mcp", "headers": {"Authorization": "Bearer t"}}})
     zed = %({"context_servers": {"obs": {"url": "https://obs/mcp", "headers": {"Authorization": "Bearer t"}}}})

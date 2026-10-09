@@ -18,6 +18,11 @@ module Mcpctl
     getter? enabled : Bool = true
     getter note : String? = nil
 
+    # The keys a server accepts, read off its fields so the list cannot drift.
+    def self.setting_names : Array(String)
+      {{ @type.instance_vars.map(&.name.stringify) }}
+    end
+
     def claude?
       targets.includes?("claude")
     end
@@ -66,7 +71,13 @@ module Mcpctl
     include YAML::Serializable::Strict
 
     getter settings : RawSettings = RawSettings.new
-    getter servers : Hash(String, Server) = {} of String => Server
+    # Group whose servers keep their own name in the generated configs.
+    DEFAULT_GROUP = "default"
+
+    # Group name -> its servers. A group is a namespace: the clients see
+    # `<group>-<server>` (see .exposed_name), so two groups may reuse a name.
+    @[YAML::Field(key: "servers")]
+    getter groups : Hash(String, Hash(String, Server)) = {} of String => Hash(String, Server)
     getter zed_raw : Hash(String, YAML::Any) = {} of String => YAML::Any
 
     def self.load(path : String) : Config
@@ -74,8 +85,25 @@ module Mcpctl
     end
 
     def self.parse(yaml : String) : Config
-      reject_duplicate_keys(YAML::Nodes.parse(yaml))
+      document = YAML::Nodes.parse(yaml)
+      reject_duplicate_keys(document)
+      reject_ungrouped_servers(document)
       from_yaml(yaml).tap(&.validate!)
+    end
+
+    # Every server under the name the clients see, groups in declaration order.
+    # Exposed names are unique (see #validate!), so no entry overwrites another.
+    def servers : Hash(String, Server)
+      all = {} of String => Server
+      groups.each do |group, members|
+        members.each { |name, server| all[Config.exposed_name(group, name)] = server }
+      end
+      all
+    end
+
+    # `concerto` + `grafana` -> `concerto-grafana`; the default group adds nothing.
+    def self.exposed_name(group : String, name : String) : String
+      group == DEFAULT_GROUP ? name : "#{group}-#{name}"
     end
 
     # YAML::Serializable keeps the last of two equal keys without a word, which
@@ -95,7 +123,55 @@ module Mcpctl
       end
     end
 
+    UNGROUPED_HINT = "servers are declared under a group (servers: <group>: <server>:)"
+
+    # A server written directly under `servers:` would parse as a group whose
+    # members are its own settings, and fail on a message that names neither.
+    # Every member of a group must be a server: a mapping, or an alias that
+    # from_yaml resolves. A "group" whose members all bear setting names
+    # (`env`, `headers`) is a server too, even if each of them is a mapping.
+    private def self.reject_ungrouped_servers(document : YAML::Nodes::Document) : Nil
+      root = document.nodes.first?
+      return unless root.is_a?(YAML::Nodes::Mapping)
+      root.nodes.each_slice(2) do |(key, value)|
+        next unless key.is_a?(YAML::Nodes::Scalar) && key.value == "servers" && value.is_a?(YAML::Nodes::Mapping)
+        value.nodes.each_slice(2) do |(group, members)|
+          next unless group.is_a?(YAML::Nodes::Scalar) && members.is_a?(YAML::Nodes::Mapping)
+          reject_ungrouped_server(group.value, members)
+        end
+      end
+    end
+
+    private def self.reject_ungrouped_server(group : String, members : YAML::Nodes::Mapping) : Nil
+      names = [] of String
+      members.nodes.each_slice(2) do |(member, body)|
+        next unless member.is_a?(YAML::Nodes::Scalar)
+        names << member.value
+        case body
+        when YAML::Nodes::Sequence, YAML::Nodes::Scalar
+          raise Error.new("servers.#{group}.#{member.value}: expected a server, found #{kind(body)}; #{UNGROUPED_HINT}")
+        end
+      end
+      return if names.empty? || !names.all? { |name| Server.setting_names.includes?(name) }
+      raise Error.new("servers.#{group}: holds server settings (#{names.join(", ")}); #{UNGROUPED_HINT}")
+    end
+
+    private def self.kind(node : YAML::Nodes::Node) : String
+      node.is_a?(YAML::Nodes::Sequence) ? "a sequence" : "a scalar"
+    end
+
     def validate! : Nil
+      # `a` + `b-c` and `a-b` + `c` both give `a-b-c`.
+      origin = {} of String => String
+      groups.each do |group, members|
+        members.each_key do |name|
+          exposed = Config.exposed_name(group, name)
+          if first = origin[exposed]?
+            raise Error.new("server name #{exposed} given twice: #{first} and #{group}.#{name}")
+          end
+          origin[exposed] = "#{group}.#{name}"
+        end
+      end
       servers.each { |name, server| server.validate!(name) }
       clash = servers.keys & zed_raw.keys
       raise Error.new("declared in both servers and zed_raw: #{clash.join(", ")}") unless clash.empty?

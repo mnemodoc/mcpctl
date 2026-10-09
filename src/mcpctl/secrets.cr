@@ -2,7 +2,7 @@ module Mcpctl
   # Reads secrets from the OS store, through the tool that manages it:
   #   macOS  login keychain   /usr/bin/security (its ACL lets it read entries it created, without a prompt)
   #   Linux  Secret Service   secret-tool, from libsecret (needs an unlocked D-Bus session)
-  # Entries are looked up by service name (e.g. mcp.openobserve).
+  # Entries are looked up by service name (e.g. mcp.monitoring.grafana).
   module Secrets
     {% if flag?(:darwin) %}
       OS = :macos

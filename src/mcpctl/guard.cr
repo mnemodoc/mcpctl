@@ -4,8 +4,10 @@ module Mcpctl
   #
   # Every string a current entry holds and the new one no longer does is
   # "dropped". A dropped string must either be a value declared in servers.yml,
-  # or equal a keychain secret of that same server — otherwise the rewrite would
-  # lose it. Messages name the entry and the key path, never the value.
+  # or equal a keychain secret of a declared server — otherwise the rewrite
+  # would lose it. Any server counts, not only the entry's namesake: a renamed
+  # server keeps its values under its new name. Messages name the entry and
+  # the key path, never the value.
   module Guard
     # Never a secret: an old command path legitimately disappears, and `type`
     # is Claude Code's transport tag (stdio, http).
@@ -28,13 +30,16 @@ module Mcpctl
     def self.dropped(config : Config, old : Hash(String, JSON::Any), new : Hash(String, JSON::Any),
                      lookup : Proc(String, String?)) : Array(String)
       errors = [] of String
+      # A value declared by any server stays readable in servers.yml, whatever
+      # entry it leaves: a renamed server finds its values under its new name.
+      declared = config.servers.values.flat_map { |server| declared_values(server) }.to_set
+      # Same for a keychain secret: a renamed server reads it under its new
+      # name, so the old entry's literal copy is not the only one.
+      secrets = config.servers.values.flat_map(&.secret_services).uniq!.compact_map { |service| lookup.call(service) }.to_set
 
       old.each do |name, entry|
-        server = config.servers[name]?
-        kept = Set(String).new
+        kept = declared.dup
         new[name]?.try { |current| leaves(current).each { |_, value| kept << value } }
-        server.try { |declared| kept.concat(declared_values(declared)) }
-        secrets = server.try(&.secret_services.compact_map { |service| lookup.call(service) }) || [] of String
         indirection = launch_indirection?(name, entry)
 
         leaves(entry).each do |path, value|
@@ -42,7 +47,7 @@ module Mcpctl
           next if exempt?(path, value)
           next if kept.includes?(value) || secrets.includes?(value)
 
-          errors << "#{name}: #{path} would be dropped but matches no keychain secret of this server"
+          errors << "#{name}: #{path} would be dropped but is neither declared in servers.yml nor a keychain secret"
         end
       end
 

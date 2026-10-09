@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Servers are declared under a group** — breaking: `servers: <group>: <server>:`
+  instead of `servers: <server>:`. A group is a namespace: the clients see
+  `<group>-<server>`, so two groups may reuse a short name; the servers of the
+  `default` group keep their own name. Two servers ending up with the same name
+  are refused, and a server left directly under `servers:` fails with a message
+  that says so. To keep the current names, move every server under `default`;
+  any other group renames its servers in Claude Code and Zed, and the tool
+  permissions written against the old names (`mcp__<name>__…`) must follow.
+- **Secret store entries named after the server** (documentation): the README
+  and `servers.example.yml` use `mcp.<group>.<server>`, `mcp.<server>` in the
+  `default` group. A convention only — `mcpctl` reads whatever entry
+  `servers.yml` names.
+
+### Fixed
+- **Renaming a server no longer trips the guard**: a value dropped from the old
+  entry is safe as long as `servers.yml` still declares it, or the keychain
+  holds it, under any server name. The guard only looked under the old name,
+  so renaming a server with a URL, a plain argument or a literal secret was
+  refused. Its message now reads "is neither declared in servers.yml nor a
+  keychain secret".
+
 ## [0.1.1] - 2026-10-05
 
 ### Fixed
