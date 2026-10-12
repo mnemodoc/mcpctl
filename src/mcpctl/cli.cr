@@ -90,9 +90,9 @@ module Mcpctl
       server = config.server(name)
       home = Path.home.to_s
 
-      if url = server.url
+      if server.http?
         headers = server.headers.merge(server.secret_headers.transform_values { |service| Secrets.fetch(service) })
-        status = HeaderFifo.run(settings.npx, ["-y", settings.mcp_remote, url, "--header-file", HeaderFifo::PLACEHOLDER], headers)
+        status = HeaderFifo.run(settings.npx, server.bridge_args(settings.mcp_remote), headers)
         exit(status.exit_code? || 1)
       else
         env = server.env.merge(server.secret_env.transform_values { |service| Secrets.fetch(service) })

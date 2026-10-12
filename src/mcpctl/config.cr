@@ -16,6 +16,9 @@ module Mcpctl
     getter secret_env : Hash(String, String) = {} of String => String
     getter secret_headers : Hash(String, String) = {} of String => String
     getter? enabled : Bool = true
+    # Lets the mcp-remote bridge reach a plain http:// url, which it refuses
+    # outside localhost: the headers then cross the network in clear.
+    getter? allow_http : Bool = false
     getter note : String? = nil
 
     # The keys a server accepts, read off its fields so the list cannot drift.
@@ -43,11 +46,25 @@ module Mcpctl
       (secret_env.values + secret_headers.values).uniq
     end
 
+    # Arguments of `npx` starting the mcp-remote bridge; the header FIFO path
+    # replaces HeaderFifo::PLACEHOLDER at spawn time.
+    def bridge_args(mcp_remote : String) : Array(String)
+      target = url || raise Error.new("no url to bridge")
+      args = ["-y", mcp_remote, target, "--header-file", HeaderFifo::PLACEHOLDER]
+      args << "--allow-http" if allow_http?
+      args
+    end
+
     def validate!(name : String) : Nil
       raise Error.new("#{name}: exactly one of command or url is required") unless command.nil? ^ url.nil?
       raise Error.new("#{name}: targets must be a non-empty subset of claude, zed") if targets.empty? || targets.any? { |target| !TARGETS.includes?(target) }
       raise Error.new("#{name}: secret_env needs a command") if http? && !secret_env.empty?
       raise Error.new("#{name}: headers and secret_headers need a url") if !http? && !(headers.empty? && secret_headers.empty?)
+      return unless allow_http?
+      # Case-insensitive like the scheme mcp-remote parses.
+      raise Error.new("#{name}: allow_http needs an http:// url") unless url.try(&.downcase.starts_with?("http://"))
+      # Elsewhere nothing goes through the bridge, and the setting would be a silent no-op.
+      raise Error.new("#{name}: allow_http only applies to the Zed bridge (secret_headers and target zed)") if secret_headers.empty? || !zed?
     end
   end
 

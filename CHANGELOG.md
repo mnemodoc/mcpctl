@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`allow_http` server setting**: `true` passes `--allow-http` to the `mcp-remote`
+  bridge started by `mcpctl launch`, which otherwise refuses an `http://` URL outside
+  localhost — an HTTP server with `secret_headers` on a plain `http://` URL could not
+  start in Zed. Only valid on an `http://` URL with `secret_headers` and the `zed`
+  target, the only case that goes through the bridge; the headers then cross the
+  network in clear.
+
 ## [0.2.0] - 2026-10-10
 
 ### Changed
@@ -60,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `settings:` section for machine-specific paths, with PATH-based defaults.
 - `mcpctl licenses` prints the third-party notices baked into the binary.
 
+[Unreleased]: https://github.com/mnemodoc/mcpctl/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/mnemodoc/mcpctl/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/mnemodoc/mcpctl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mnemodoc/mcpctl/releases/tag/v0.1.0

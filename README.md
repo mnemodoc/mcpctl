@@ -107,6 +107,7 @@ refused, and so is a server written directly under `servers:`.
 | `secret_env` | `VARIABLE: store-entry`, read by `mcpctl launch` |
 | `secret_headers` | `Header: store-entry`, read by `mcpctl headers` (Claude Code) or passed through the FIFO (Zed) |
 | `enabled` | `false` declares the server disabled in Zed and leaves it out of Claude Code |
+| `allow_http` | `true` passes `--allow-http` to the `mcp-remote` bridge, which otherwise refuses an `http://` URL outside localhost; only valid on an `http://` URL with `secret_headers` and the `zed` target (the only case that goes through the bridge), and the headers then cross the network in clear |
 | `note` | copied as comments above the entry in Zed |
 | `zed_raw` (top level) | entries copied verbatim into Zed — servers provided by a Zed extension |
 | `settings` (top level) | `mcpctl`, `npx`, `mcp_remote`, `zed_settings`, `claude_json` — machine-specific paths, all optional |

@@ -143,6 +143,21 @@ describe Mcpctl::Config do
     end
   end
 
+  describe "Server#bridge_args" do
+    it "hands mcp-remote the url and the header FIFO" do
+      config = Mcpctl::Config.parse("servers:\n  default:\n    a:\n      targets: [zed]\n      url: https://x/mcp\n")
+
+      config.server("a").bridge_args("mcp-remote@1.2.3").should eq ["-y", "mcp-remote@1.2.3", "https://x/mcp", "--header-file", "{fifo}"]
+    end
+
+    # mcp-remote refuses a non-HTTPS url outside localhost unless told otherwise.
+    it "adds --allow-http when the server allows it" do
+      config = Mcpctl::Config.parse("servers:\n  default:\n    a:\n      targets: [zed]\n      url: http://x/mcp\n      secret_headers: {H: mcp.h}\n      allow_http: true\n")
+
+      config.server("a").bridge_args("mcp-remote@1.2.3").should eq ["-y", "mcp-remote@1.2.3", "http://x/mcp", "--header-file", "{fifo}", "--allow-http"]
+    end
+  end
+
   describe "#validate!" do
     {
       "a server with both command and url"    => {"targets: [zed]\n    command: /bin/x\n    url: https://x", "a: exactly one of command or url is required"},
@@ -152,6 +167,10 @@ describe Mcpctl::Config do
       "secret_env on an HTTP server"          => {"targets: [zed]\n    url: https://x\n    secret_env: {T: mcp.t}", "a: secret_env needs a command"},
       "headers on a stdio server"             => {"targets: [zed]\n    command: /bin/x\n    headers: {H: v}", "a: headers and secret_headers need a url"},
       "secret_headers on a stdio server"      => {"targets: [zed]\n    command: /bin/x\n    secret_headers: {H: mcp.h}", "a: headers and secret_headers need a url"},
+      "allow_http on a stdio server"          => {"targets: [zed]\n    command: /bin/x\n    allow_http: true", "a: allow_http needs an http:// url"},
+      "allow_http on an https url"            => {"targets: [zed]\n    url: https://x\n    secret_headers: {H: mcp.h}\n    allow_http: true", "a: allow_http needs an http:// url"},
+      "allow_http without secret_headers"     => {"targets: [zed]\n    url: http://x\n    allow_http: true", "a: allow_http only applies to the Zed bridge (secret_headers and target zed)"},
+      "allow_http without the zed target"     => {"targets: [claude]\n    url: http://x\n    secret_headers: {H: mcp.h}\n    allow_http: true", "a: allow_http only applies to the Zed bridge (secret_headers and target zed)"},
     }.each do |label, (body, message)|
       it "refuses #{label}" do
         expect_raises(Mcpctl::Error, message) { Mcpctl::Config.parse("servers:\n  default:\n    a:\n      #{body.gsub("\n    ", "\n      ")}\n") }
@@ -162,6 +181,19 @@ describe Mcpctl::Config do
       yaml = "servers:\n  default:\n    a:\n      targets: [zed]\n      command: /bin/x\nzed_raw:\n  a: {}\n"
 
       expect_raises(Mcpctl::Error, "declared in both servers and zed_raw: a") { Mcpctl::Config.parse(yaml) }
+    end
+
+    it "accepts allow_http on an http:// url" do
+      config = Mcpctl::Config.parse("servers:\n  default:\n    a:\n      targets: [zed]\n      url: http://x/mcp\n      secret_headers: {H: mcp.h}\n      allow_http: true\n")
+
+      config.server("a").allow_http?.should be_true
+    end
+
+    # mcp-remote parses the url, so the scheme is case-insensitive there too.
+    it "accepts allow_http on an uppercase HTTP:// url" do
+      config = Mcpctl::Config.parse("servers:\n  default:\n    a:\n      targets: [zed]\n      url: HTTP://x/mcp\n      secret_headers: {H: mcp.h}\n      allow_http: true\n")
+
+      config.server("a").allow_http?.should be_true
     end
 
     it "accepts the shipped servers.example.yml" do
